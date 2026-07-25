@@ -2,7 +2,7 @@
 
 **An infinite corkboard for your thoughts, files, and screenshots — with visual connections between ideas.**
 
-Built with Tauri + React + Rust. *Vibe coded in a weekend with Claude Code.*
+Built with Tauri + React + Rust. *Vibe coded in a weekend with opencode.*
 
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 
@@ -110,6 +110,6 @@ GNU Affero General Public License v3.0 — see [LICENSE](LICENSE).
 
 ## Credits
 
-This project was vibe coded as a collaboration between human intent and [Claude Code](https://claude.ai). The entire codebase was generated through iterative prompting — describing features in natural language and letting AI produce the implementation. No manual code was written.
+This project was vibe coded as a collaboration between human intent and [opencode](https://github.com/anomalyco/opencode). The entire codebase was generated through iterative prompting — describing features in natural language and letting AI produce the implementation. No manual code was written.
 
 The name "Charly" is a playful riff on "Charlie" — a faithful companion that remembers things for you.
