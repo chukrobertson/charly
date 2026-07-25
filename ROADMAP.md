@@ -74,12 +74,56 @@ Canvas state synced over WebSocket.
 Clipboard bridge: copy on mobile → desktop clipboard → all peers.
 ```
 
-## Future ideas (post-Phase 3)
+## Phase 4 — Local LLM assistant
+
+Goal: a local language model (running fully offline) that understands your workspace — making meaning from notes, connections, and clipboard history. Acts as a background intelligence layer, not a chatbot.
+
+- [ ] Ollama integration — connect to a locally running instance (llama.cpp compatible)
+- [ ] Configurable model selection — choose from any Ollama-pulled model
+- [ ] **Meaning from connections** — given a cluster of string-connected notes, generate a one-paragraph summary of the idea they represent together. Display as a floating "insight card" on the connection midpoint
+- [ ] **Clipboard history analysis** — periodically scan recent clipboard captures and surface patterns: recurring topics, copied URLs from the same domains, repeated phrases
+- [ ] **Auto-tagging** — generate 2–4 short tags per note based on content. Display tags as small chips on each note
+- [ ] **Semantic search** — natural language query across all notes ("find notes about database design"). Uses local embeddings via the same model, no cloud dependency
+- [ ] **Workspace cleanup** — suggest merging near-duplicate notes, flag stale/isolated notes for archival, propose reorganizing clusters into logical groups
+- [ ] **Daily digest** — optional end-of-day summary of what you captured, grouped by inferred topic
+- [ ] **OCR via LLM** — multimodal models can read text from clipped screenshots and populate the note with the extracted text
+- [ ] **Ambient, not intrusive** — suggestions appear as subtle decorators on the canvas. You approve, dismiss, or ignore. Nothing auto-modifies your board
+- [ ] Privacy-first: everything runs locally. No API keys, no telemetry, no network calls for inference
+
+### Architecture sketch
+
+```
+┌─────────────┐     localhost:11434     ┌──────────────┐
+│   Charly    │◄──────────────────────►│   Ollama     │
+│  (Tauri)    │    HTTP + JSON          │  (llama.cpp) │
+│             │                         │              │
+│  ┌────────┐ │   POST /api/generate    │  llama3.2    │
+│  │ LLM    │ │   POST /api/embeddings  │  mistral     │
+│  │ plugin │ │                         │  gemma       │
+│  └────────┘ │                         │  ...         │
+└─────────────┘                         └──────────────┘
+
+Charly's LLM plugin runs optionally.
+User controls: model, frequency, which features are active.
+All prompts run as background tasks — non-blocking.
+Results rendered as suggestions, not mutations.
+```
+
+### Key prompts
+
+| Task | Prompt shape |
+|---|---|
+| Cluster summary | "You are analyzing a mind map. These {n} notes are connected. Each note says: ... Summarize what this cluster of ideas represents in 2–3 sentences." |
+| Auto-tag | "Generate 2–4 single-word tags for this note: {content}. Return as comma-separated list." |
+| Semantic search | Embed query + all notes → cosine similarity → top-k results ranked |
+| Dedup detection | "Are these two notes essentially the same idea? Note A: ... Note B: ... Reply YES or NO with brief reason." |
+| Daily digest | "Here are {n} notes captured today across {m} clusters. Group them by topic and provide a 2-sentence summary per group." |
+
+## Future ideas (post-Phase 4)
 
 - [ ] Web clipper browser extension — grab snippets, screenshots, bookmarks
-- [ ] OCR on clipped images — make text in screenshots searchable
-- [ ] Tags and search — filter notes by tag, full-text search
-- [ ] Export board as SVG / PDF / Markdown
 - [ ] Custom note shapes (circles, arrows, freehand drawing)
 - [ ] Calendar / timeline mode for time-based note arrangement
 - [ ] Plugin system — user-contributed note types and integrations
+- [ ] Export board as SVG / PDF / Markdown
+- [ ] Multi-user collaboration with presence cursors
