@@ -1,12 +1,24 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import QRCode from "qrcode";
 import StickyNote from "./components/StickyNote";
 import type { Note, ClipboardEvent, Connection } from "./types";
 import { CONNECTION_COLORS } from "./types";
 import "./App.css";
 
 type Theme = "light" | "dark" | "contrast";
+
+interface OtgStatus {
+  running: boolean;
+  url: string | null;
+  pairing_code: string | null;
+}
+
+interface PeerInfo {
+  ip: string;
+  port: number;
+}
 
 export default function App() {
   const [notes, setNotes] = useState<Note[]>([]);
@@ -23,6 +35,11 @@ export default function App() {
   const [pinnedNoteId, setPinnedNoteId] = useState<string | null>(null);
   const [connColor, setConnColor] = useState(CONNECTION_COLORS[0]);
   const [connColorOpen, setConnColorOpen] = useState(false);
+  const [otgStatus, setOtgStatus] = useState<OtgStatus>({ running: false, url: null, pairing_code: null });
+  const [otgPanelOpen, setOtgPanelOpen] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [peers, setPeers] = useState<PeerInfo[]>([]);
+  const [peersLoading, setPeersLoading] = useState(false);
 
   useEffect(() => {
     invoke<Note[]>("get_notes")
@@ -206,6 +223,34 @@ export default function App() {
     invoke("add_note", { note }).catch(() => {});
   }, [viewX, viewY, scale]);
 
+  const toggleOtg = useCallback(async () => {
+    if (otgStatus.running) {
+      await invoke("stop_otg");
+      setOtgStatus({ running: false, url: null, pairing_code: null });
+      setQrDataUrl(null);
+      setOtgPanelOpen(false);
+    } else {
+      const status = await invoke<OtgStatus>("start_otg");
+      setOtgStatus(status);
+      setOtgPanelOpen(true);
+      if (status.url) {
+        const dataUrl = await QRCode.toDataURL(status.url, { width: 200, margin: 1 });
+        setQrDataUrl(dataUrl);
+      }
+    }
+  }, [otgStatus.running]);
+
+  const scanForPeers = useCallback(async () => {
+    setPeersLoading(true);
+    try {
+      const result = await invoke<PeerInfo[]>("scan_for_peers");
+      setPeers(result);
+    } catch {
+      setPeers([]);
+    }
+    setPeersLoading(false);
+  }, []);
+
   const noteMap = new Map(notes.map((n) => [n.id, n]));
 
   const connectionLines = connections
@@ -283,6 +328,16 @@ export default function App() {
       </div>
 
       <div className="toolbar">
+        <button
+          className={`toolbar-btn ${otgStatus.running ? "otg-active" : ""}`}
+          onClick={toggleOtg}
+          title={otgStatus.running ? "Stop mobile sharing" : "Share on mobile"}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="5" y="2" width="14" height="20" rx="2" />
+            <line x1="12" y1="18" x2="12.01" y2="18" />
+          </svg>
+        </button>
         <button className="toolbar-btn" onClick={cycleTheme} title={`Theme: ${theme}`}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             {theme === "light" && (
@@ -346,6 +401,37 @@ export default function App() {
           ? "Now click another note to connect them  |  Click canvas to cancel"
           : "Click the star pin to connect notes  |  Clipboard is watched — copy anything"}
       </div>
+
+      {otgPanelOpen && otgStatus.running && (
+        <div className="otg-panel">
+          <button className="otg-close" onClick={() => setOtgPanelOpen(false)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+          <h3>Mobile Access</h3>
+          {qrDataUrl && <img src={qrDataUrl} alt="QR Code" className="otg-qr" />}
+          <div className="otg-code">Pairing code: <strong>{otgStatus.pairing_code}</strong></div>
+          <div className="otg-url">{otgStatus.url}</div>
+          <p style={{ fontSize: 11, color: "#888", margin: "8px 0" }}>
+            Open this URL on your phone and enter the pairing code.
+            <br />Add to Home Screen for a full-screen app experience.
+          </p>
+          <button className="otg-scan-btn" onClick={scanForPeers} disabled={peersLoading}>
+            {peersLoading ? "Scanning..." : "Scan for other OTG servers"}
+          </button>
+          {peers.length > 0 && (
+            <div className="otg-peers">
+              <p style={{ fontSize: 11, marginBottom: 4 }}>Peers found:</p>
+              {peers.map((p, i) => (
+                <div key={i} className="otg-peer">
+                  <span className="otg-peer-ip">{p.ip}:{p.port}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

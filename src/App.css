@@ -360,3 +360,107 @@ html, body, #root {
 [data-theme="contrast"] .note-pinned {
   outline-color: #fff !important;
 }
+
+.otg-active {
+  color: #4ECDC4 !important;
+  border-color: #4ECDC4 !important;
+  box-shadow: 0 0 12px rgba(78, 205, 196, 0.3) !important;
+}
+
+.otg-panel {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--toolbar-bg);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 16px;
+  padding: 24px;
+  z-index: 2000;
+  min-width: 280px;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  color: var(--note-text);
+}
+
+.otg-panel h3 {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.otg-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--toolbar-text);
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.otg-close:hover {
+  background: rgba(0,0,0,0.1);
+}
+
+.otg-qr {
+  border-radius: 8px;
+  margin-bottom: 12px;
+  background: #fff;
+  padding: 8px;
+}
+
+.otg-code {
+  font-size: 14px;
+  margin: 8px 0;
+}
+
+.otg-code strong {
+  font-size: 22px;
+  letter-spacing: 4px;
+  color: #4ECDC4;
+}
+
+.otg-url {
+  font-size: 11px;
+  color: var(--toolbar-text);
+  word-break: break-all;
+  margin: 8px 0;
+  padding: 6px 10px;
+  background: rgba(0,0,0,0.05);
+  border-radius: 6px;
+  font-family: monospace;
+}
+
+.otg-scan-btn {
+  margin-top: 8px;
+  padding: 8px 16px;
+  font-size: 12px;
+  border: 1px solid var(--toolbar-border);
+  border-radius: 8px;
+  background: var(--toolbar-bg);
+  color: var(--note-text);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.otg-scan-btn:hover:not(:disabled) {
+  background: rgba(78, 205, 196, 0.1);
+  border-color: #4ECDC4;
+}
+
+.otg-peers {
+  margin-top: 10px;
+  text-align: left;
+}
+
+.otg-peer {
+  padding: 6px 10px;
+  background: rgba(0,0,0,0.05);
+  border-radius: 6px;
+  margin-top: 4px;
+  font-size: 11px;
+  font-family: monospace;
+}

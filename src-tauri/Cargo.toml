@@ -28,3 +28,8 @@ uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1", features = ["full"] }
 image = "0.25"
 open = "5"
+axum = { version = "0.7", features = ["ws"] }
+tower-http = { version = "0.5", features = ["cors", "fs"] }
+rand = "0.8"
+hostname = "0.4"
+reqwest = { version = "0.12", features = ["blocking", "json"] }

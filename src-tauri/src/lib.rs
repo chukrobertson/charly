@@ -1,12 +1,22 @@
 mod clipboard;
 mod db;
+mod discovery;
+mod server;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tauri::Manager;
+use tokio::sync::Mutex;
 
 use clipboard::start_clipboard_watcher;
 use db::{ConnData, Database, Note};
+
+struct OtgState {
+    handle: Option<tokio::task::JoinHandle<()>>,
+    pairing_code: String,
+    port: u16,
+    running: bool,
+}
 
 #[tauri::command]
 fn get_notes(db: tauri::State<'_, Arc<Database>>) -> Result<Vec<Note>, String> {
@@ -90,6 +100,125 @@ fn delete_connection(
     db.delete_connection(&id)
 }
 
+#[tauri::command]
+fn get_local_ips() -> Result<Vec<String>, String> {
+    let mut ips = Vec::new();
+    if let Ok(hostname) = hostname::get() {
+        if let Ok(hostname) = hostname.into_string() {
+            ips.push(hostname);
+        }
+    }
+    Ok(ips)
+}
+
+#[tauri::command]
+fn get_tailscale_ip() -> String {
+    let output = std::process::Command::new("tailscale")
+        .args(["ip", "-4"])
+        .output()
+        .ok();
+    if let Some(out) = output {
+        if out.status.success() {
+            let ip = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !ip.is_empty() {
+                return ip;
+            }
+        }
+    }
+    String::new()
+}
+
+#[derive(serde::Serialize)]
+struct OtgStatus {
+    running: bool,
+    url: Option<String>,
+    pairing_code: Option<String>,
+}
+
+#[tauri::command]
+async fn start_otg(
+    db: tauri::State<'_, Arc<Database>>,
+    otg: tauri::State<'_, Arc<Mutex<OtgState>>>,
+) -> Result<OtgStatus, String> {
+    let mut state = otg.lock().await;
+    if state.running {
+        let url = build_url(&state);
+        return Ok(OtgStatus {
+            running: true,
+            url: Some(url),
+            pairing_code: Some(state.pairing_code.clone()),
+        });
+    }
+
+    let port = 8080u16;
+
+    let (pairing_code, handle) = server::start_server(db.inner().clone(), port)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    state.handle = Some(handle);
+    state.port = port;
+    state.pairing_code = pairing_code.clone();
+    state.running = true;
+
+    let url = build_url(&state);
+    Ok(OtgStatus {
+        running: true,
+        url: Some(url),
+        pairing_code: Some(pairing_code),
+    })
+}
+
+#[tauri::command]
+async fn stop_otg(
+    otg: tauri::State<'_, Arc<Mutex<OtgState>>>,
+) -> Result<(), String> {
+    let mut state = otg.lock().await;
+    state.running = false;
+    state.pairing_code.clear();
+    if let Some(handle) = state.handle.take() {
+        handle.abort();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_otg_status(
+    otg: tauri::State<'_, Arc<Mutex<OtgState>>>,
+) -> Result<OtgStatus, String> {
+    let state = otg.lock().await;
+    if state.running {
+        Ok(OtgStatus {
+            running: true,
+            url: Some(build_url(&state)),
+            pairing_code: Some(state.pairing_code.clone()),
+        })
+    } else {
+        Ok(OtgStatus {
+            running: false,
+            url: None,
+            pairing_code: None,
+        })
+    }
+}
+
+#[tauri::command]
+fn scan_for_peers() -> Result<Vec<discovery::PeerInfo>, String> {
+    let mut peers = Vec::new();
+    for ip in discovery::get_tailscale_peers() {
+        if let Ok(true) = discovery::check_peer_otg(&ip, 8080) {
+            peers.push(discovery::PeerInfo { ip, port: 8080 });
+        }
+    }
+    Ok(peers)
+}
+
+fn build_url(state: &OtgState) -> String {
+    let ts_ip = get_tailscale_ip();
+    let ip = if ts_ip.is_empty() { "localhost".to_string() } else { ts_ip };
+    format!("http://{}:{}", ip, state.port)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let clipboard_running = Arc::new(AtomicBool::new(false));
@@ -107,6 +236,14 @@ pub fn run() {
 
             let db = Arc::new(Database::new(app.handle()).expect("Failed to init database"));
             app.manage(db.clone());
+
+            let otg_state = Arc::new(Mutex::new(OtgState {
+                handle: None,
+                pairing_code: String::new(),
+                port: 8080,
+                running: false,
+            }));
+            app.manage(otg_state);
 
             let cl_running = clipboard_running.clone();
             let cl_app = app.handle().clone();
@@ -160,6 +297,12 @@ pub fn run() {
             get_connections,
             add_connection,
             delete_connection,
+            get_local_ips,
+            get_tailscale_ip,
+            start_otg,
+            stop_otg,
+            get_otg_status,
+            scan_for_peers,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
