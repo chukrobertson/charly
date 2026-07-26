@@ -12,66 +12,137 @@
 - [x] SQLite persistence (notes + connections survive restarts)
 - [x] Cross-platform via Tauri (Linux, macOS, Windows)
 
-## Phase 2 — Network clipboard sync
+## Phase 2 — Mobile companion + OTG server
 
-Goal: multiple machines on the same LAN or VPN share a single workspace. Anything copied on machine A appears on machine B and vice versa.
+Goal: one machine on your network runs an embedded HTTP server. Your phone (or any browser) connects to see and interact with the board. One-click to start, one-click to stop. Smart about which device should host.
 
-- [ ] mDNS / Bonjour discovery — peers auto-find each other on the local network
-- [ ] Peer-to-peer encrypted transport (libp2p or QUIC)
-- [ ] Real-time canvas sync — notes, moves, resizes, color changes propagate
-- [ ] Shared clipboard bridge — clip on one machine, paste on another
-- [ ] Conflict-free sync via CRDT (automerge or y.js)
-- [ ] Optional VPN mode — manually specify peer IPs for connections over WireGuard / Tailscale
-- [ ] Peer presence indicator — show which machines are connected on the canvas
-- [ ] Note authorship — see which machine added which note
+### Core features
+
+- [ ] **Embedded HTTP + WebSocket server** in the Tauri app (axum + tokio-tungstenite)
+- [ ] **One-click toggle** in the toolbar — "Share on mobile"
+- [ ] **QR code** displayed on screen for instant phone pairing
+- [ ] **Mobile-optimized web UI** — touch gestures, responsive layout, same canvas
+- [ ] **PWA manifest** — "Add to Home Screen" on iOS/Android, works fullscreen
+- [ ] **Mobile clipboard bridge** — copy on phone → appears on host desktop board
+- [ ] **Auth via pairing code** — one-time 6-digit code shown on desktop, entered on phone
+
+### Leader election — only one OTG at a time
+
+You install Charly on multiple devices. Only ONE should run the OTG server at any time. When you toggle OTG on a new device:
+
+```
+┌─────────────┐                         ┌─────────────┐
+│  Machine A   │  "OTG already running" │  Machine B   │
+│  (currently  │◄──────────────────────│  (you just   │
+│   hosting)   │     mDNS responds      │   toggled    │
+│              │     on _charly._tcp    │   OTG on)    │
+└─────────────┘                         └─────────────┘
+                                               │
+                                     ┌─────────┴─────────┐
+                                     │  Dialog appears:   │
+                                     │                    │
+                                     │  "Machine A is      │
+                                     │  already hosting.   │
+                                     │                     │
+                                     │  [Keep on A]  [Move here]" │
+                                     └────────────────────┘
+```
+
+| Scenario | Behavior |
+|---|---|
+| No other OTG detected | Start immediately |
+| Another OTG detected on LAN | Prompt: keep on remote or move here |
+| User chooses "Move here" | Remote OTG shuts down gracefully, this one starts |
+| User chooses "Keep on A" | This instance does nothing, shows a link to connect |
+| Hosting device goes offline | Any other device can claim OTG after 30s timeout |
+
+### Tailscale / remote access
+
+- [ ] **Bind to Tailscale IP** — server listens on the Tailscale interface (`100.x.x.x`), not just `0.0.0.0`
+- [ ] **Tailscale-aware discovery** — check known Tailscale peers for a running OTG, not just mDNS
+- [ ] **QR code includes Tailscale URL** — `http://100.x.x.x:8080` so it works from anywhere
+- [ ] **Optional: bind to localhost only** — if Tailscale isn't running, fall back to LAN-only
+- [ ] **Works over Tailscale MagicDNS** — `http://hostname.tailnet-name.ts.net:8080`
 
 ### Architecture sketch
 
 ```
-┌──────────┐  mDNS discover  ┌──────────┐
-│ Machine A │◄──────────────►│ Machine B │
-│ (desktop) │  QUIC encrypted │ (laptop)  │
-│           │◄──────────────►│           │
-└─────┬─────┘  CRDT sync     └─────┬─────┘
-      │                            │
-      └──────────┬─────────────────┘
-                 │
-          ┌──────┴──────┐
-          │  Machine C   │
-          │  (remote via │
-          │   VPN IP)    │
-          └─────────────┘
+                   Tailscale network (100.x.y.z)
+┌──────────────┐                              ┌──────────────┐
+│  Ubuntu       │  mDNS + Tailscale peer check │  Ubuntu       │
+│  ThinkPad     │◄───────────────────────────►│  MacBook      │
+│  (OTG host?)  │                              │  (OTG host?)  │
+└──────┬───────┘                              └──────┬───────┘
+       │                                             │
+       │             ┌──────────────┐                │
+       │             │  Win11       │                │
+       │             │  Desktop     │                │
+       │             │  (OTG host?) │                │
+       │             └──────┬───────┘                │
+       │                    │                        │
+       │    Only ONE runs   │                        │
+       │    the OTG server  │                        │
+       │                    │                        │
+       └────────┬───────────┴────────────────────────┘
+                │
+                │  HTTP :8080 (over Tailscale)
+                │
+         ┌──────┴──────┐
+         │   iPhone     │
+         │   Browser    │
+         │   (PWA)      │
+         └─────────────┘
+
+Leader election protocol:
+1. Instance toggles OTG → broadcasts mDNS query (_charly._tcp)
+2. Any host responds with its ID, IP, port, uptime
+3. If no response → start server immediately
+4. If response(s) received → show dialog with options
+5. Winner binds to :8080, registers _charly._tcp service
+6. Others remain passive, poll mDNS every 5s for liveness
+7. Host dies → after 30s silence, any waiting instance can claim
 ```
 
-Each peer runs a lightweight embedded server. Clipboard changes and note mutations are broadcast as CRDT operations. The canvas is eventually consistent — last-write-wins for simple fields, CRDT merge for text content.
+## Phase 3 — Network canvas sync
 
-## Phase 3 — Mobile companion
+Goal: the full canvas syncs in real-time across machines. Built on the discovery + transport layer from Phase 2. Clip on machine A, it appears on machines B, C, and the mobile view simultaneously.
 
-Goal: one-click OTG server that serves the workspace as a mobile-friendly web view. Your phone becomes a read/write window into the shared board.
-
-- [ ] Embedded HTTP server in the Tauri app (actix-web or axum)
-- [ ] One-click "Share on mobile" button in the toolbar
-- [ ] Generates a QR code for instant phone connection
-- [ ] Mobile-optimized web UI (touch gestures, responsive layout)
-- [ ] Mobile clipboard bridge — copy on phone, appears on desktop board and vice versa
-- [ ] Works over LAN (same Wi-Fi) or via VPN when remote
-- [ ] No app install required on mobile — works in any browser
-- [ ] Optional PWA manifest for "Add to Home Screen" experience
-- [ ] Authentication via a one-time pairing code shown on desktop
+- [ ] **Reuse Phase 2 transport** — the same axum/WebSocket server handles both mobile clients and peer sync
+- [ ] **Real-time canvas sync** — notes, moves, resizes, colors, connections propagate between peers
+- [ ] **Shared clipboard bridge** — clip on one machine, appears on all
+- [ ] **Conflict-free sync via CRDT** (automerge or y.js) for note content
+- [ ] **Peer presence indicator** — show connected machines as icons on the canvas
+- [ ] **Note authorship** — see which machine added or last edited each note
+- [ ] **Offline resilience** — each machine has its own SQLite. On reconnect, CRDT merges changes
 
 ### Architecture sketch
 
 ```
-┌──────────┐                    ┌──────────┐
-│ Desktop   │  HTTP + WebSocket │  Mobile   │
-│ (Tauri)   │◄────────────────►│  Browser  │
-│           │   on LAN :8080   │           │
-└──────────┘                    └──────────┘
+                 Tailscale network + LAN
+┌──────────┐                            ┌──────────┐
+│ Machine A │◄────────────────────────►│ Machine B │
+│ (hosting   │  WebSocket CRDT sync     │ (peer)    │
+│  OTG +     │                          │           │
+│  full      │◄────────────────────────►│           │
+│  canvas)   │                          └──────────┘
+└─────┬─────┘
+      │                          ┌──────────┐
+      │◄────────────────────────►│ Machine C │
+      │  WebSocket               │ (peer)    │
+      │                          └──────────┘
+      │
+      │  HTTP (mobile UI)
+      │
+┌─────┴─────┐
+│  iPhone    │
+│  Browser   │
+└───────────┘
 
-Desktop runs embedded server.
-Mobile connects via QR code (URL with token).
-Canvas state synced over WebSocket.
-Clipboard bridge: copy on mobile → desktop clipboard → all peers.
+The OTG host acts as the sync hub.
+All peers connect to it via WebSocket.
+Canvas state is a CRDT document — mutations broadcast to all.
+Each machine keeps its own SQLite for offline durability.
+Mobile browser gets canvas state pushed via the same WebSocket.
 ```
 
 ## Phase 4 — Local LLM assistant
